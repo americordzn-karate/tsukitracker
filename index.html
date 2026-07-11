@@ -247,36 +247,7 @@
 <script>
 /* =========================================================================
    TRAYECTORIA DE GOLPE — Senshi-Kan
-   App independiente (no forma parte del portal de retos).
 
-   Notas de implementación / supuestos adoptados:
-   - Se usa MediaPipe Pose (mismo motor que el reto POSICIONES/PUNCH) para
-     ubicar hombro-codo-muñeca de ambos brazos.
-   - El ángulo se mide en el codo (hombro-codo-muñeca), pero el esqueleto
-     (nodos y líneas hombro-codo-muñeca) permanece oculto en pantalla; solo
-     se muestran los medidores de ángulo (HUD) y el trazo de trayectoria.
-   - Mientras ningún brazo ha cruzado 175°, cada uno traza en su color
-     (derecho amarillo, izquierdo verde). En cuanto CUALQUIERA de los dos
-     cruza 175°, ese brazo queda marcado como "activo" y, a partir de ese
-     instante, los puntos NUEVOS de ambos brazos se dibujan en rojo — lo ya
-     trazado en amarillo/verde se conserva tal cual. El brazo secundario
-     sigue registrando su propio recorrido (ya no se congela), pero es el
-     brazo activo el que decide cuándo se detiene el trazo.
-   - El trazo se detiene cuando el brazo activo (el que cruzó 175° primero)
-     llega a 55°; en ese instante suena un beep corto de confirmación y se
-     toma la captura. Si un brazo nunca llega a 175° en 6 s, o llega pero
-     nunca regresa a 55° en los 4 s siguientes, el sistema cierra el golpe
-     de forma automática para no bloquear la sesión (sin el beep de
-     confirmación, ya que no fue un golpe completo).
-   - El desvanecimiento del trazo dura 1.5 s después de los 5 s de
-     permanencia en pantalla.
-   - La captura de pantalla se toma en el instante exacto en que el trazo
-     se detiene (antes de iniciar el desvanecido), incluyendo el video y
-     el trazo completo (ida + regreso).
-   - El contador regresivo numérico en pantalla solo se muestra antes del
-     primer golpe; del segundo en adelante la cuenta sigue el mismo tiempo
-     aleatorio (3-5 s) pero solo se anuncia con la señal auditiva.
-   - Se repite el ciclo 5 veces y luego la sesión finaliza.
    ========================================================================= */
 
 const HOLD_MS = 5000;
@@ -284,7 +255,7 @@ const FADE_MS = 1500;
 const MIN_COUNTDOWN = 3000;
 const MAX_COUNTDOWN = 5000;
 const ANGLE_THRESHOLD = 175;
-const RETURN_THRESHOLD = 55;
+const RETURN_THRESHOLD = 45;
 const MAX_TRACK_MS = 6000;
 const MAX_RETURN_MS = 4000;
 const TOTAL_REPS = 5;
