@@ -254,14 +254,17 @@
      ubicar hombro-codo-muñeca de ambos brazos.
    - El ángulo se mide en el codo (hombro-codo-muñeca). Mientras el golpe va
      de ida se traza en el color del brazo (derecho amarillo, izquierdo
-     verde); al cruzar 175° ese brazo queda marcado como "activo" y el
-     trazo nuevo cambia a rojo mientras el puño regresa a la guardia.
-   - El brazo que no lanzó el golpe se congela en cuanto el otro cruza 175°,
-     para que el trazo registrado corresponda a un solo golpe por repetición.
-   - El trazo se detiene cuando el brazo activo llega a 70° (solo cuenta si
-     ya había cruzado 175° antes). Si un brazo nunca llega a 175° en 6 s,
-     o llega pero nunca regresa a 70° en los 4 s siguientes, el sistema
-     cierra el golpe de forma automática para no bloquear la sesión.
+     verde); al cruzar 175° ese brazo queda marcado como "activo" y tanto
+     su trazo nuevo como el trazo ya dibujado del otro brazo cambian a rojo
+     mientras el puño regresa a la guardia.
+   - El brazo que no lanzó el golpe deja de registrar puntos nuevos en
+     cuanto el otro cruza 175° (su trazo ya dibujado solo cambia de color).
+   - El trazo se detiene cuando el brazo activo llega a 55° (solo cuenta si
+     ya había cruzado 175° antes); en ese instante suena un beep corto de
+     confirmación y se toma la captura. Si un brazo nunca llega a 175° en
+     6 s, o llega pero nunca regresa a 55° en los 4 s siguientes, el
+     sistema cierra el golpe de forma automática para no bloquear la sesión
+     (sin el beep de confirmación, ya que no fue un golpe completo).
    - El desvanecimiento del trazo dura 1.5 s después de los 5 s de
      permanencia en pantalla.
    - La captura de pantalla se toma en el instante exacto en que el trazo
@@ -278,7 +281,7 @@ const FADE_MS = 1500;
 const MIN_COUNTDOWN = 3000;
 const MAX_COUNTDOWN = 5000;
 const ANGLE_THRESHOLD = 175;
-const RETURN_THRESHOLD = 70;
+const RETURN_THRESHOLD = 55;
 const MAX_TRACK_MS = 6000;
 const MAX_RETURN_MS = 4000;
 const TOTAL_REPS = 5;
@@ -324,19 +327,40 @@ function ensureAudio(){
   if(!audioCtx){ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
   if(audioCtx.state === 'suspended'){ audioCtx.resume(); }
 }
-function playBeep(){
+function playStartSignal(){
+  ensureAudio();
+  const t0 = audioCtx.currentTime;
+  const dur = 0.5;
+  const osc = audioCtx.createOscillator();
+  const osc2 = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = 'square';
+  osc.frequency.setValueAtTime(2200, t0);
+  osc2.type = 'square';
+  osc2.frequency.setValueAtTime(2205, t0); // ligero detune, refuerza el timbre de buzzer
+  gain.gain.setValueAtTime(0, t0);
+  gain.gain.linearRampToValueAtTime(0.75, t0 + 0.02);
+  gain.gain.setValueAtTime(0.75, t0 + dur - 0.06);
+  gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  osc.connect(gain);
+  osc2.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start(t0); osc2.start(t0);
+  osc.stop(t0 + dur + 0.02); osc2.stop(t0 + dur + 0.02);
+}
+function playCompletionBeep(){
   ensureAudio();
   const t0 = audioCtx.currentTime;
   const osc = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
   osc.type = 'sine';
-  osc.frequency.setValueAtTime(2000, t0);
+  osc.frequency.setValueAtTime(1500, t0);
   gain.gain.setValueAtTime(0, t0);
-  gain.gain.linearRampToValueAtTime(0.55, t0 + 0.01);
-  gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.22);
+  gain.gain.linearRampToValueAtTime(0.5, t0 + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.16);
   osc.connect(gain).connect(audioCtx.destination);
   osc.start(t0);
-  osc.stop(t0 + 0.24);
+  osc.stop(t0 + 0.18);
 }
 
 /* ---------------- Gauges ---------------- */
@@ -401,7 +425,7 @@ function nextRepCycle(){
     const remaining = delay - (performance.now() - countdownStart);
     if(remaining <= 0){
       countdownNum.style.display = 'none';
-      playBeep();
+      playStartSignal();
       beginTracking();
       return;
     }
@@ -430,6 +454,7 @@ function completePunch(arm, reason){
   setPhase('Manteniendo', 'tracking');
   repCount++;
   updateRepLabel();
+  if(reason === 'reached') playCompletionBeep();
   captureShot(arm, reason);
   stateTimer = setTimeout(() => {
     state = 'fading';
@@ -537,7 +562,7 @@ function drawTrail(points, alpha){
   if(points.length < 2) return;
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.lineWidth = 5;
+  ctx.lineWidth = 7.5;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   for(let i=1;i<points.length;i++){
@@ -612,6 +637,7 @@ function onResults(results){
         if(currentAngleR >= ANGLE_THRESHOLD){
           activeArm = 'right';
           hasExtended = true;
+          trailL = trailL.map(p => ({ x: p.x, y: p.y, color: returnColor }));
           clearStateTimer();
           stateTimer = setTimeout(() => {
             if(state === 'tracking') completePunch('right', 'no-return');
@@ -619,6 +645,7 @@ function onResults(results){
         } else if(currentAngleL >= ANGLE_THRESHOLD){
           activeArm = 'left';
           hasExtended = true;
+          trailR = trailR.map(p => ({ x: p.x, y: p.y, color: returnColor }));
           clearStateTimer();
           stateTimer = setTimeout(() => {
             if(state === 'tracking') completePunch('left', 'no-return');
