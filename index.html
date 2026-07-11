@@ -1,1 +1,661 @@
-aqui va el codigo
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Trayectoria de Golpe — Senshi-Kan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B0D10;
+    --panel:#12161B;
+    --panel-2:#171C22;
+    --line:#262B31;
+    --text:#E8EAED;
+    --text-dim:#8A9099;
+    --right:#F2C94C;   /* puño derecho */
+    --left:#4CD97A;    /* puño izquierdo */
+    --alert:#E8583F;
+    --radius:16px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Rajdhani',sans-serif;
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+    padding:24px 16px 60px;
+  }
+  .app{width:100%;max-width:980px;}
+
+  /* ---------- Header ---------- */
+  header{margin-bottom:20px;}
+  .eyebrow{
+    font-size:12px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--text-dim);font-weight:600;
+  }
+  h1{
+    font-family:'Bebas Neue',sans-serif;
+    font-size:clamp(32px,6vw,52px);
+    letter-spacing:.02em;
+    margin:2px 0 4px;
+    line-height:1;
+  }
+  h1 span{color:var(--right);}
+  .sub{color:var(--text-dim);font-size:15px;max-width:640px;}
+
+  /* ---------- Stage ---------- */
+  .stage{
+    position:relative;
+    background:#000;
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    overflow:hidden;
+    margin-top:22px;
+    aspect-ratio:4/3;
+    display:flex;align-items:center;justify-content:center;
+  }
+  video{display:none;}
+  canvas{width:100%;height:100%;display:block;object-fit:cover;}
+
+  .stage-empty{
+    position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:14px;
+    color:var(--text-dim);text-align:center;padding:24px;
+  }
+  .stage-empty svg{opacity:.5;}
+
+  /* HUD overlays */
+  .hud{position:absolute;inset:0;pointer-events:none;font-family:'Rajdhani',sans-serif;}
+  .hud-top{
+    position:absolute;top:14px;left:14px;right:14px;
+    display:flex;justify-content:space-between;align-items:flex-start;
+  }
+  .rep-counter{
+    background:rgba(11,13,16,.55);backdrop-filter:blur(4px);
+    border:1px solid var(--line);border-radius:10px;
+    padding:6px 14px;
+  }
+  .rep-counter .label{font-size:10px;letter-spacing:.15em;color:var(--text-dim);text-transform:uppercase;}
+  .rep-counter .value{font-family:'Bebas Neue',sans-serif;font-size:26px;line-height:1;}
+
+  .gauges{display:flex;gap:10px;}
+  .gauge-box{
+    background:rgba(11,13,16,.55);backdrop-filter:blur(4px);
+    border:1px solid var(--line);border-radius:10px;
+    padding:6px 8px 4px;width:96px;text-align:center;
+  }
+  .gauge-box .arm-label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-dim);}
+  .gauge-box svg{width:100%;height:44px;}
+  .gauge-box .deg{font-family:'Bebas Neue',sans-serif;font-size:20px;line-height:1;}
+  .gauge-box.der .deg{color:var(--right);}
+  .gauge-box.izq .deg{color:var(--left);}
+
+  .phase-badge{
+    position:absolute;bottom:16px;left:50%;transform:translateX(-50%);
+    background:rgba(11,13,16,.7);backdrop-filter:blur(4px);
+    border:1px solid var(--line);border-radius:999px;
+    padding:7px 20px;font-size:13px;letter-spacing:.1em;text-transform:uppercase;
+    font-weight:600;
+  }
+  .phase-badge.live{border-color:var(--alert);color:var(--alert);}
+  .phase-badge.tracking{border-color:var(--right);color:var(--right);}
+  .phase-badge.done{border-color:var(--left);color:var(--left);}
+
+  .countdown-num{
+    position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+    font-family:'Bebas Neue',sans-serif;
+    font-size:clamp(70px,20vw,140px);
+    color:var(--alert);
+    text-shadow:0 0 30px rgba(232,88,63,.6);
+  }
+
+  /* ---------- Controls ---------- */
+  .controls{
+    display:flex;flex-wrap:wrap;gap:12px;align-items:center;
+    margin-top:16px;
+  }
+  button{
+    font-family:'Rajdhani',sans-serif;font-weight:700;font-size:14px;
+    letter-spacing:.06em;text-transform:uppercase;
+    padding:12px 22px;border-radius:10px;border:1px solid var(--line);
+    background:var(--panel-2);color:var(--text);cursor:pointer;
+    transition:border-color .15s,background .15s;
+  }
+  button:hover:not(:disabled){border-color:var(--right);}
+  button:disabled{opacity:.4;cursor:not-allowed;}
+  button.primary{background:var(--right);color:#1a1305;border-color:var(--right);}
+  button.primary:hover:not(:disabled){filter:brightness(1.08);}
+  button.danger{color:var(--alert);}
+  button.danger:hover:not(:disabled){border-color:var(--alert);}
+
+  .status-text{font-size:14px;color:var(--text-dim);}
+  .status-text b{color:var(--text);}
+
+  /* ---------- Gallery ---------- */
+  .gallery{margin-top:34px;}
+  .gallery h2{
+    font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:.02em;
+    margin:0 0 4px;
+  }
+  .gallery .sub{margin-bottom:14px;}
+  .grid{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));
+    gap:14px;
+  }
+  .card{
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    overflow:hidden;
+  }
+  .card img{width:100%;display:block;aspect-ratio:4/3;object-fit:cover;background:#000;}
+  .card .meta{padding:10px 12px;}
+  .card .meta .n{font-family:'Bebas Neue',sans-serif;font-size:18px;line-height:1;}
+  .card .meta .arm-tag{
+    display:inline-block;margin-top:4px;font-size:11px;letter-spacing:.08em;
+    text-transform:uppercase;padding:2px 8px;border-radius:999px;font-weight:600;
+  }
+  .arm-tag.der{background:rgba(242,201,76,.15);color:var(--right);}
+  .arm-tag.izq{background:rgba(76,217,122,.15);color:var(--left);}
+  .arm-tag.amb{background:rgba(255,255,255,.1);color:var(--text-dim);}
+  .card .meta .angle{font-size:12px;color:var(--text-dim);margin-top:2px;}
+  .card .dl{
+    width:100%;border:none;border-top:1px solid var(--line);border-radius:0;
+    background:transparent;font-size:12px;padding:8px;
+  }
+  .gallery-empty{
+    color:var(--text-dim);font-size:14px;border:1px dashed var(--line);
+    border-radius:12px;padding:22px;text-align:center;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div class="eyebrow">Senshi-Kan · Análisis de movimiento</div>
+    <h1>Trayectoria de <span>Golpe</span></h1>
+    <p class="sub">Traza en tiempo real la trayectoria del puño al lanzar el golpe. Detección de ambos brazos mediante seguimiento de postura — derecho en amarillo, izquierdo en verde.</p>
+  </header>
+
+  <div class="stage" id="stage">
+    <video id="video" playsinline autoplay muted></video>
+    <canvas id="canvas"></canvas>
+
+    <div class="stage-empty" id="stageEmpty">
+      <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M15 8a3 3 0 1 0-6 0M9 8v5a3 3 0 0 0 6 0V8M6 21v-3a6 6 0 0 1 12 0v3" />
+      </svg>
+      <div>Presiona <b>Iniciar sesión</b> para activar la cámara y comenzar el seguimiento.</div>
+    </div>
+
+    <div class="hud" id="hud" style="display:none;">
+      <div class="hud-top">
+        <div class="rep-counter">
+          <div class="label">Golpe</div>
+          <div class="value" id="repValue">0 / 5</div>
+        </div>
+        <div class="gauges">
+          <div class="gauge-box der">
+            <div class="arm-label">Der</div>
+            <svg viewBox="0 0 120 68" id="gaugeR">
+              <path d="M12,64 A48,48 0 0 1 108,64" fill="none" stroke="#2A2F36" stroke-width="7" stroke-linecap="round"/>
+              <path d="M97.5,29.5 A48,48 0 0 1 108,64" fill="none" stroke="var(--right)" stroke-width="7" stroke-linecap="round" opacity="0.35"/>
+              <line id="needleR" x1="60" y1="64" x2="60" y2="20" stroke="var(--right)" stroke-width="4" stroke-linecap="round"/>
+              <circle cx="60" cy="64" r="4.5" fill="var(--right)"/>
+            </svg>
+            <div class="deg" id="degR">--°</div>
+          </div>
+          <div class="gauge-box izq">
+            <div class="arm-label">Izq</div>
+            <svg viewBox="0 0 120 68" id="gaugeL">
+              <path d="M12,64 A48,48 0 0 1 108,64" fill="none" stroke="#2A2F36" stroke-width="7" stroke-linecap="round"/>
+              <path d="M97.5,29.5 A48,48 0 0 1 108,64" fill="none" stroke="var(--left)" stroke-width="7" stroke-linecap="round" opacity="0.35"/>
+              <line id="needleL" x1="60" y1="64" x2="60" y2="20" stroke="var(--left)" stroke-width="4" stroke-linecap="round"/>
+              <circle cx="60" cy="64" r="4.5" fill="var(--left)"/>
+            </svg>
+            <div class="deg" id="degL">--°</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="countdown-num" id="countdownNum" style="display:none;"></div>
+      <div class="phase-badge" id="phaseBadge">Listo</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="primary" id="startBtn">Iniciar sesión</button>
+    <button class="danger" id="resetBtn" disabled>Reiniciar</button>
+    <span class="status-text" id="statusText">Cámara inactiva.</span>
+  </div>
+
+  <div class="gallery">
+    <h2>Capturas de la sesión</h2>
+    <p class="sub">Cada captura combina la imagen de la cámara con la trayectoria trazada al momento en que el brazo alcanzó la extensión completa.</p>
+    <div class="grid" id="grid"></div>
+    <div class="gallery-empty" id="galleryEmpty">Aún no hay capturas. Se agregarán aquí conforme completes cada golpe.</div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+<script>
+/* =========================================================================
+   TRAYECTORIA DE GOLPE — Senshi-Kan
+   App independiente (no forma parte del portal de retos).
+
+   Notas de implementación / supuestos adoptados:
+   - Se usa MediaPipe Pose (mismo motor que el reto POSICIONES/PUNCH) para
+     ubicar hombro-codo-muñeca de ambos brazos.
+   - El ángulo de "extensión" es el ángulo interno del codo (hombro-codo-muñeca).
+     Al llegar a 175° se considera el brazo extendido y se congela el trazo.
+   - Si ninguno de los dos brazos alcanza 175° en 6 segundos desde la señal
+     auditiva, el sistema cierra el golpe de forma automática para no
+     bloquear la sesión (se marca "sin extensión completa" en la captura).
+   - El desvanecimiento del trazo dura 1.5 s después de los 5 s de
+     permanencia en pantalla.
+   - La captura de pantalla se toma en el instante exacto en que se alcanza
+     la extensión (antes de iniciar el desvanecido), incluyendo el video y
+     el trazo.
+   - Se repite el ciclo 5 veces y luego la sesión finaliza.
+   ========================================================================= */
+
+const HOLD_MS = 5000;
+const FADE_MS = 1500;
+const MIN_COUNTDOWN = 3000;
+const MAX_COUNTDOWN = 5000;
+const ANGLE_THRESHOLD = 175;
+const MAX_TRACK_MS = 6000;
+const TOTAL_REPS = 5;
+
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const stageEmpty = document.getElementById('stageEmpty');
+const hud = document.getElementById('hud');
+const repValue = document.getElementById('repValue');
+const countdownNum = document.getElementById('countdownNum');
+const phaseBadge = document.getElementById('phaseBadge');
+const degR = document.getElementById('degR');
+const degL = document.getElementById('degL');
+const needleR = document.getElementById('needleR');
+const needleL = document.getElementById('needleL');
+const startBtn = document.getElementById('startBtn');
+const resetBtn = document.getElementById('resetBtn');
+const statusText = document.getElementById('statusText');
+const grid = document.getElementById('grid');
+const galleryEmpty = document.getElementById('galleryEmpty');
+
+let pose = null;
+let running = false;
+let state = 'idle'; // idle | countdown | tracking | holding | fading | finished
+let repCount = 0;
+let trackStartTime = 0;
+let holdStartTime = 0;
+let fadeStartTime = 0;
+let trailR = []; // {x,y}
+let trailL = [];
+let currentAngleR = 90;
+let currentAngleL = 90;
+let capturedThisRep = false;
+let stateTimer = null;
+let audioCtx = null;
+let lastLandmarks = null;
+
+/* ---------------- Audio ---------------- */
+function ensureAudio(){
+  if(!audioCtx){ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+  if(audioCtx.state === 'suspended'){ audioCtx.resume(); }
+}
+function playBeep(){
+  ensureAudio();
+  const t0 = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(2000, t0);
+  gain.gain.setValueAtTime(0, t0);
+  gain.gain.linearRampToValueAtTime(0.55, t0 + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.22);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(t0);
+  osc.stop(t0 + 0.24);
+}
+
+/* ---------------- Gauges ---------------- */
+function updateGauge(needleEl, degEl, value){
+  const clamped = Math.max(90, Math.min(180, value));
+  const frac = (clamped - 90) / 90;
+  const mathAngleDeg = 180 - frac * 180;
+  const rad = mathAngleDeg * Math.PI / 180;
+  const cx = 60, cy = 64, r = 40;
+  const x2 = cx + r * Math.cos(rad);
+  const y2 = cy - r * Math.sin(rad);
+  needleEl.setAttribute('x2', x2.toFixed(1));
+  needleEl.setAttribute('y2', y2.toFixed(1));
+  degEl.textContent = Math.round(value) + '°';
+}
+
+/* ---------------- Geometry ---------------- */
+function angleAt(a,b,c){
+  const ab = {x:a.x-b.x, y:a.y-b.y};
+  const cb = {x:c.x-b.x, y:c.y-b.y};
+  const dot = ab.x*cb.x + ab.y*cb.y;
+  const magAB = Math.hypot(ab.x, ab.y);
+  const magCB = Math.hypot(cb.x, cb.y);
+  if(magAB === 0 || magCB === 0) return 90;
+  const cos = Math.min(1, Math.max(-1, dot/(magAB*magCB)));
+  return Math.acos(cos) * 180 / Math.PI;
+}
+
+function mirroredPoint(lm){
+  return { x: canvas.width - (lm.x * canvas.width), y: lm.y * canvas.height };
+}
+
+/* ---------------- Phase / state control ---------------- */
+function setPhase(text, cls){
+  phaseBadge.textContent = text;
+  phaseBadge.className = 'phase-badge' + (cls ? ' ' + cls : '');
+}
+
+function clearStateTimer(){ if(stateTimer){ clearTimeout(stateTimer); stateTimer = null; } }
+
+function startSession(){
+  repCount = 0;
+  updateRepLabel();
+  clearGalleryIfEmptyState();
+  nextRepCycle();
+}
+
+function nextRepCycle(){
+  if(repCount >= TOTAL_REPS){ finishSession(); return; }
+  trailR = []; trailL = [];
+  capturedThisRep = false;
+  state = 'countdown';
+  const delay = MIN_COUNTDOWN + Math.random() * (MAX_COUNTDOWN - MIN_COUNTDOWN);
+  countdownNum.style.display = 'block';
+  setPhase('Prepárate', 'live');
+  const countdownStart = performance.now();
+  const tick = () => {
+    if(state !== 'countdown') return;
+    const remaining = delay - (performance.now() - countdownStart);
+    if(remaining <= 0){
+      countdownNum.style.display = 'none';
+      playBeep();
+      beginTracking();
+      return;
+    }
+    countdownNum.textContent = Math.ceil(remaining/1000);
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+function beginTracking(){
+  state = 'tracking';
+  trackStartTime = performance.now();
+  setPhase('¡Golpea!', 'tracking');
+  clearStateTimer();
+  stateTimer = setTimeout(() => {
+    if(state === 'tracking') completePunch('ambos', true);
+  }, MAX_TRACK_MS);
+}
+
+function completePunch(arm, timedOut){
+  if(capturedThisRep) return;
+  capturedThisRep = true;
+  clearStateTimer();
+  state = 'holding';
+  holdStartTime = performance.now();
+  setPhase('Manteniendo', 'tracking');
+  repCount++;
+  updateRepLabel();
+  captureShot(arm, timedOut);
+  stateTimer = setTimeout(() => {
+    state = 'fading';
+    fadeStartTime = performance.now();
+    setPhase('Desvaneciendo');
+    stateTimer = setTimeout(() => {
+      nextRepCycle();
+    }, FADE_MS);
+  }, HOLD_MS);
+}
+
+function finishSession(){
+  state = 'finished';
+  countdownNum.style.display = 'none';
+  setPhase('Sesión completa', 'done');
+  statusText.innerHTML = '<b>Sesión finalizada.</b> Revisa las capturas más abajo.';
+}
+
+function updateRepLabel(){
+  repValue.textContent = Math.min(repCount, TOTAL_REPS) + ' / ' + TOTAL_REPS;
+}
+
+/* ---------------- Capture ---------------- */
+function captureShot(arm, timedOut){
+  const dataURL = canvas.toDataURL('image/png');
+  const armLabel = arm === 'right' ? 'Derecho' : arm === 'left' ? 'Izquierdo' : 'Ambos';
+  const armClass = arm === 'right' ? 'der' : arm === 'left' ? 'izq' : 'amb';
+  const angleReached = arm === 'right' ? currentAngleR : arm === 'left' ? currentAngleL : Math.max(currentAngleR, currentAngleL);
+  addGalleryCard({
+    index: repCount,
+    dataURL,
+    armLabel,
+    armClass,
+    angleText: timedOut ? 'sin extensión completa' : Math.round(angleReached) + '° de extensión'
+  });
+}
+
+function clearGalleryIfEmptyState(){
+  galleryEmpty.style.display = 'none';
+}
+
+function addGalleryCard(item){
+  galleryEmpty.style.display = 'none';
+  const card = document.createElement('div');
+  card.className = 'card';
+  const img = document.createElement('img');
+  img.src = item.dataURL;
+  img.alt = 'Golpe ' + item.index;
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  meta.innerHTML = `
+    <div class="n">Golpe ${item.index}</div>
+    <span class="arm-tag ${item.armClass}">${item.armLabel}</span>
+    <div class="angle">${item.angleText}</div>
+  `;
+  const dl = document.createElement('button');
+  dl.className = 'dl';
+  dl.textContent = 'Descargar imagen';
+  dl.addEventListener('click', () => {
+    const a = document.createElement('a');
+    a.href = item.dataURL;
+    a.download = `golpe_${item.index}_${item.armClass}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
+  card.appendChild(img);
+  card.appendChild(meta);
+  card.appendChild(dl);
+  grid.prepend(card);
+}
+
+/* ---------------- Draw loop ---------------- */
+function drawSkeletonPoint(x, y, color){
+  ctx.beginPath();
+  ctx.arc(x, y, 6, 0, Math.PI*2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = 'rgba(255,255,255,.6)';
+  ctx.stroke();
+}
+
+function drawArmSkeleton(shoulder, elbow, wrist, color){
+  ctx.beginPath();
+  ctx.moveTo(shoulder.x, shoulder.y);
+  ctx.lineTo(elbow.x, elbow.y);
+  ctx.lineTo(wrist.x, wrist.y);
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(255,255,255,.55)';
+  ctx.stroke();
+  drawSkeletonPoint(shoulder.x, shoulder.y, color);
+  drawSkeletonPoint(elbow.x, elbow.y, color);
+  drawSkeletonPoint(wrist.x, wrist.y, color);
+}
+
+function drawTrail(points, color, alpha){
+  if(points.length < 2) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 12;
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for(let i=1;i<points.length;i++){ ctx.lineTo(points[i].x, points[i].y); }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function onResults(results){
+  if(canvas.width !== video.videoWidth && video.videoWidth){
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+  }
+  if(!canvas.width) return;
+
+  ctx.save();
+  ctx.scale(-1, 1);
+  ctx.translate(-canvas.width, 0);
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  ctx.restore();
+
+  lastLandmarks = results.poseLandmarks || null;
+
+  let alpha = 1;
+  if(state === 'fading'){
+    const elapsed = performance.now() - fadeStartTime;
+    alpha = Math.max(0, 1 - elapsed / FADE_MS);
+  }
+  if(state === 'tracking' || state === 'holding' || state === 'fading'){
+    drawTrail(trailR, getComputedStyle(document.documentElement).getPropertyValue('--right').trim(), alpha);
+    drawTrail(trailL, getComputedStyle(document.documentElement).getPropertyValue('--left').trim(), alpha);
+  }
+
+  if(lastLandmarks){
+    const rs = mirroredPoint(lastLandmarks[12]);
+    const re = mirroredPoint(lastLandmarks[14]);
+    const rw = mirroredPoint(lastLandmarks[16]);
+    const ls = mirroredPoint(lastLandmarks[11]);
+    const le = mirroredPoint(lastLandmarks[13]);
+    const lw = mirroredPoint(lastLandmarks[15]);
+
+    currentAngleR = angleAt(lastLandmarks[12], lastLandmarks[14], lastLandmarks[16]);
+    currentAngleL = angleAt(lastLandmarks[11], lastLandmarks[13], lastLandmarks[15]);
+    updateGauge(needleR, degR, currentAngleR);
+    updateGauge(needleL, degL, currentAngleL);
+
+    const rightColor = getComputedStyle(document.documentElement).getPropertyValue('--right').trim();
+    const leftColor = getComputedStyle(document.documentElement).getPropertyValue('--left').trim();
+    drawArmSkeleton(rs, re, rw, rightColor);
+    drawArmSkeleton(ls, le, lw, leftColor);
+
+    if(state === 'tracking'){
+      const visR = (lastLandmarks[16].visibility ?? 1) > 0.4;
+      const visL = (lastLandmarks[15].visibility ?? 1) > 0.4;
+      if(visR) trailR.push(rw);
+      if(visL) trailL.push(lw);
+
+      if(currentAngleR >= ANGLE_THRESHOLD){
+        completePunch('right', false);
+      } else if(currentAngleL >= ANGLE_THRESHOLD){
+        completePunch('left', false);
+      }
+    }
+  }
+}
+
+async function detectFrame(){
+  if(!running) return;
+  if(video.readyState >= 2){
+    try{ await pose.send({image: video}); }catch(e){ /* frame skip */ }
+  }
+  requestAnimationFrame(detectFrame);
+}
+
+/* ---------------- Setup ---------------- */
+async function initCamera(){
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: 'user', width: { ideal: 960 }, height: { ideal: 720 } },
+    audio: false
+  });
+  video.srcObject = stream;
+  await new Promise(res => { video.onloadedmetadata = () => { video.play(); res(); }; });
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+}
+
+function initPose(){
+  pose = new Pose({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}` });
+  pose.setOptions({
+    modelComplexity: 1,
+    smoothLandmarks: true,
+    enableSegmentation: false,
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.6
+  });
+  pose.onResults(onResults);
+}
+
+startBtn.addEventListener('click', async () => {
+  startBtn.disabled = true;
+  statusText.textContent = 'Solicitando acceso a la cámara…';
+  try{
+    ensureAudio();
+    await initCamera();
+    initPose();
+    stageEmpty.style.display = 'none';
+    hud.style.display = 'block';
+    running = true;
+    statusText.innerHTML = 'Cámara activa. <b>Sesión en curso.</b>';
+    resetBtn.disabled = false;
+    detectFrame();
+    startSession();
+  }catch(err){
+    statusText.textContent = 'No se pudo acceder a la cámara: ' + err.message;
+    startBtn.disabled = false;
+  }
+});
+
+resetBtn.addEventListener('click', () => {
+  running = false;
+  clearStateTimer();
+  state = 'idle';
+  repCount = 0;
+  trailR = []; trailL = [];
+  countdownNum.style.display = 'none';
+  updateRepLabel();
+  setPhase('Listo');
+  if(video.srcObject){
+    video.srcObject.getTracks().forEach(t => t.stop());
+    video.srcObject = null;
+  }
+  hud.style.display = 'none';
+  stageEmpty.style.display = 'flex';
+  startBtn.disabled = false;
+  resetBtn.disabled = true;
+  statusText.textContent = 'Cámara inactiva.';
+});
+</script>
+</body>
+</html>
