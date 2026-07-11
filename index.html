@@ -14,8 +14,9 @@
     --line:#262B31;
     --text:#E8EAED;
     --text-dim:#8A9099;
-    --right:#F2C94C;   /* puño derecho */
-    --left:#4CD97A;    /* puño izquierdo */
+    --right:#F2C94C;   /* puño derecho (trazo de ida) */
+    --left:#4CD97A;    /* puño izquierdo (trazo de ida) */
+    --return:#E23B3B;  /* trazo de regreso, cualquier brazo */
     --alert:#E8583F;
     --radius:16px;
   }
@@ -83,15 +84,15 @@
   .rep-counter .label{font-size:10px;letter-spacing:.15em;color:var(--text-dim);text-transform:uppercase;}
   .rep-counter .value{font-family:'Bebas Neue',sans-serif;font-size:26px;line-height:1;}
 
-  .gauges{display:flex;gap:10px;}
+  .gauges{display:flex;gap:6px;}
   .gauge-box{
     background:rgba(11,13,16,.55);backdrop-filter:blur(4px);
-    border:1px solid var(--line);border-radius:10px;
-    padding:6px 8px 4px;width:96px;text-align:center;
+    border:1px solid var(--line);border-radius:8px;
+    padding:3px 4px 2px;width:48px;text-align:center;
   }
-  .gauge-box .arm-label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-dim);}
-  .gauge-box svg{width:100%;height:44px;}
-  .gauge-box .deg{font-family:'Bebas Neue',sans-serif;font-size:20px;line-height:1;}
+  .gauge-box .arm-label{font-size:7px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-dim);}
+  .gauge-box svg{width:100%;height:22px;}
+  .gauge-box .deg{font-family:'Bebas Neue',sans-serif;font-size:11px;line-height:1;}
   .gauge-box.der .deg{color:var(--right);}
   .gauge-box.izq .deg{color:var(--left);}
 
@@ -178,7 +179,7 @@
   <header>
     <div class="eyebrow">Senshi-Kan · Análisis de movimiento</div>
     <h1>Trayectoria de <span>Golpe</span></h1>
-    <p class="sub">Traza en tiempo real la trayectoria del puño al lanzar el golpe. Detección de ambos brazos mediante seguimiento de postura — derecho en amarillo, izquierdo en verde.</p>
+    <p class="sub">Traza en tiempo real la trayectoria del puño al lanzar el golpe. Detección de ambos brazos mediante seguimiento de postura — derecho en amarillo, izquierdo en verde durante el impacto, y en rojo durante el regreso a la guardia.</p>
   </header>
 
   <div class="stage" id="stage">
@@ -235,7 +236,7 @@
 
   <div class="gallery">
     <h2>Capturas de la sesión</h2>
-    <p class="sub">Cada captura combina la imagen de la cámara con la trayectoria trazada al momento en que el brazo alcanzó la extensión completa.</p>
+    <p class="sub">Cada captura combina la imagen de la cámara con la trayectoria trazada, ida (amarillo/verde) y regreso (rojo), al momento en que el brazo vuelve a los 70°.</p>
     <div class="grid" id="grid"></div>
     <div class="gallery-empty" id="galleryEmpty">Aún no hay capturas. Se agregarán aquí conforme completes cada golpe.</div>
   </div>
@@ -251,16 +252,24 @@
    Notas de implementación / supuestos adoptados:
    - Se usa MediaPipe Pose (mismo motor que el reto POSICIONES/PUNCH) para
      ubicar hombro-codo-muñeca de ambos brazos.
-   - El ángulo de "extensión" es el ángulo interno del codo (hombro-codo-muñeca).
-     Al llegar a 175° se considera el brazo extendido y se congela el trazo.
-   - Si ninguno de los dos brazos alcanza 175° en 6 segundos desde la señal
-     auditiva, el sistema cierra el golpe de forma automática para no
-     bloquear la sesión (se marca "sin extensión completa" en la captura).
+   - El ángulo se mide en el codo (hombro-codo-muñeca). Mientras el golpe va
+     de ida se traza en el color del brazo (derecho amarillo, izquierdo
+     verde); al cruzar 175° ese brazo queda marcado como "activo" y el
+     trazo nuevo cambia a rojo mientras el puño regresa a la guardia.
+   - El brazo que no lanzó el golpe se congela en cuanto el otro cruza 175°,
+     para que el trazo registrado corresponda a un solo golpe por repetición.
+   - El trazo se detiene cuando el brazo activo llega a 70° (solo cuenta si
+     ya había cruzado 175° antes). Si un brazo nunca llega a 175° en 6 s,
+     o llega pero nunca regresa a 70° en los 4 s siguientes, el sistema
+     cierra el golpe de forma automática para no bloquear la sesión.
    - El desvanecimiento del trazo dura 1.5 s después de los 5 s de
      permanencia en pantalla.
-   - La captura de pantalla se toma en el instante exacto en que se alcanza
-     la extensión (antes de iniciar el desvanecido), incluyendo el video y
-     el trazo.
+   - La captura de pantalla se toma en el instante exacto en que el trazo
+     se detiene (antes de iniciar el desvanecido), incluyendo el video y
+     el trazo completo (ida + regreso).
+   - El contador regresivo numérico en pantalla solo se muestra antes del
+     primer golpe; del segundo en adelante la cuenta sigue el mismo tiempo
+     aleatorio (3-5 s) pero solo se anuncia con la señal auditiva.
    - Se repite el ciclo 5 veces y luego la sesión finaliza.
    ========================================================================= */
 
@@ -269,7 +278,9 @@ const FADE_MS = 1500;
 const MIN_COUNTDOWN = 3000;
 const MAX_COUNTDOWN = 5000;
 const ANGLE_THRESHOLD = 175;
+const RETURN_THRESHOLD = 70;
 const MAX_TRACK_MS = 6000;
+const MAX_RETURN_MS = 4000;
 const TOTAL_REPS = 5;
 
 const video = document.getElementById('video');
@@ -305,6 +316,8 @@ let capturedThisRep = false;
 let stateTimer = null;
 let audioCtx = null;
 let lastLandmarks = null;
+let activeArm = null;     // 'right' | 'left' | null — brazo que lanzó el golpe
+let hasExtended = false;  // true una vez que el brazo activo cruzó 175°
 
 /* ---------------- Audio ---------------- */
 function ensureAudio(){
@@ -375,9 +388,12 @@ function nextRepCycle(){
   if(repCount >= TOTAL_REPS){ finishSession(); return; }
   trailR = []; trailL = [];
   capturedThisRep = false;
+  activeArm = null;
+  hasExtended = false;
   state = 'countdown';
   const delay = MIN_COUNTDOWN + Math.random() * (MAX_COUNTDOWN - MIN_COUNTDOWN);
-  countdownNum.style.display = 'block';
+  const showNumber = (repCount === 0); // solo antes del primer golpe
+  if(showNumber) countdownNum.style.display = 'block';
   setPhase('Prepárate', 'live');
   const countdownStart = performance.now();
   const tick = () => {
@@ -389,7 +405,7 @@ function nextRepCycle(){
       beginTracking();
       return;
     }
-    countdownNum.textContent = Math.ceil(remaining/1000);
+    if(showNumber) countdownNum.textContent = Math.ceil(remaining/1000);
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
@@ -401,11 +417,11 @@ function beginTracking(){
   setPhase('¡Golpea!', 'tracking');
   clearStateTimer();
   stateTimer = setTimeout(() => {
-    if(state === 'tracking') completePunch('ambos', true);
+    if(state === 'tracking') completePunch('ambos', 'no-extend');
   }, MAX_TRACK_MS);
 }
 
-function completePunch(arm, timedOut){
+function completePunch(arm, reason){
   if(capturedThisRep) return;
   capturedThisRep = true;
   clearStateTimer();
@@ -414,7 +430,7 @@ function completePunch(arm, timedOut){
   setPhase('Manteniendo', 'tracking');
   repCount++;
   updateRepLabel();
-  captureShot(arm, timedOut);
+  captureShot(arm, reason);
   stateTimer = setTimeout(() => {
     state = 'fading';
     fadeStartTime = performance.now();
@@ -437,17 +453,24 @@ function updateRepLabel(){
 }
 
 /* ---------------- Capture ---------------- */
-function captureShot(arm, timedOut){
+function captureShot(arm, reason){
   const dataURL = canvas.toDataURL('image/png');
   const armLabel = arm === 'right' ? 'Derecho' : arm === 'left' ? 'Izquierdo' : 'Ambos';
   const armClass = arm === 'right' ? 'der' : arm === 'left' ? 'izq' : 'amb';
-  const angleReached = arm === 'right' ? currentAngleR : arm === 'left' ? currentAngleL : Math.max(currentAngleR, currentAngleL);
+  let angleText;
+  if(reason === 'no-extend'){
+    angleText = 'sin extensión completa';
+  } else if(reason === 'no-return'){
+    angleText = 'no regresó a 70°';
+  } else {
+    angleText = 'ida-regreso completo';
+  }
   addGalleryCard({
     index: repCount,
     dataURL,
     armLabel,
     armClass,
-    angleText: timedOut ? 'sin extensión completa' : Math.round(angleReached) + '° de extensión'
+    angleText
   });
 }
 
@@ -510,20 +533,24 @@ function drawArmSkeleton(shoulder, elbow, wrist, color){
   drawSkeletonPoint(wrist.x, wrist.y, color);
 }
 
-function drawTrail(points, color, alpha){
+function drawTrail(points, alpha){
   if(points.length < 2) return;
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.strokeStyle = color;
   ctx.lineWidth = 5;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 12;
-  ctx.beginPath();
-  ctx.moveTo(points[0].x, points[0].y);
-  for(let i=1;i<points.length;i++){ ctx.lineTo(points[i].x, points[i].y); }
-  ctx.stroke();
+  for(let i=1;i<points.length;i++){
+    const prev = points[i-1];
+    const curr = points[i];
+    ctx.strokeStyle = curr.color;
+    ctx.shadowColor = curr.color;
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.moveTo(prev.x, prev.y);
+    ctx.lineTo(curr.x, curr.y);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -548,8 +575,8 @@ function onResults(results){
     alpha = Math.max(0, 1 - elapsed / FADE_MS);
   }
   if(state === 'tracking' || state === 'holding' || state === 'fading'){
-    drawTrail(trailR, getComputedStyle(document.documentElement).getPropertyValue('--right').trim(), alpha);
-    drawTrail(trailL, getComputedStyle(document.documentElement).getPropertyValue('--left').trim(), alpha);
+    drawTrail(trailR, alpha);
+    drawTrail(trailL, alpha);
   }
 
   if(lastLandmarks){
@@ -573,13 +600,42 @@ function onResults(results){
     if(state === 'tracking'){
       const visR = (lastLandmarks[16].visibility ?? 1) > 0.4;
       const visL = (lastLandmarks[15].visibility ?? 1) > 0.4;
-      if(visR) trailR.push(rw);
-      if(visL) trailL.push(lw);
+      const rightColor = getComputedStyle(document.documentElement).getPropertyValue('--right').trim();
+      const leftColor = getComputedStyle(document.documentElement).getPropertyValue('--left').trim();
+      const returnColor = getComputedStyle(document.documentElement).getPropertyValue('--return').trim();
 
-      if(currentAngleR >= ANGLE_THRESHOLD){
-        completePunch('right', false);
-      } else if(currentAngleL >= ANGLE_THRESHOLD){
-        completePunch('left', false);
+      if(activeArm === null){
+        // Aún no se define qué brazo lanza el golpe: se registran ambos.
+        if(visR) trailR.push({x: rw.x, y: rw.y, color: rightColor});
+        if(visL) trailL.push({x: lw.x, y: lw.y, color: leftColor});
+
+        if(currentAngleR >= ANGLE_THRESHOLD){
+          activeArm = 'right';
+          hasExtended = true;
+          clearStateTimer();
+          stateTimer = setTimeout(() => {
+            if(state === 'tracking') completePunch('right', 'no-return');
+          }, MAX_RETURN_MS);
+        } else if(currentAngleL >= ANGLE_THRESHOLD){
+          activeArm = 'left';
+          hasExtended = true;
+          clearStateTimer();
+          stateTimer = setTimeout(() => {
+            if(state === 'tracking') completePunch('left', 'no-return');
+          }, MAX_RETURN_MS);
+        }
+      } else {
+        // El brazo activo continúa trazando en rojo durante el regreso.
+        const isRight = activeArm === 'right';
+        const vis = isRight ? visR : visL;
+        const point = isRight ? rw : lw;
+        const arr = isRight ? trailR : trailL;
+        if(vis) arr.push({x: point.x, y: point.y, color: returnColor});
+
+        const activeAngle = isRight ? currentAngleR : currentAngleL;
+        if(hasExtended && activeAngle <= RETURN_THRESHOLD){
+          completePunch(activeArm, 'reached');
+        }
       }
     }
   }
@@ -643,6 +699,8 @@ resetBtn.addEventListener('click', () => {
   state = 'idle';
   repCount = 0;
   trailR = []; trailL = [];
+  activeArm = null;
+  hasExtended = false;
   countdownNum.style.display = 'none';
   updateRepLabel();
   setPhase('Listo');
