@@ -252,19 +252,22 @@
    Notas de implementación / supuestos adoptados:
    - Se usa MediaPipe Pose (mismo motor que el reto POSICIONES/PUNCH) para
      ubicar hombro-codo-muñeca de ambos brazos.
-   - El ángulo se mide en el codo (hombro-codo-muñeca). Mientras el golpe va
-     de ida se traza en el color del brazo (derecho amarillo, izquierdo
-     verde); al cruzar 175° ese brazo queda marcado como "activo" y tanto
-     su trazo nuevo como el trazo ya dibujado del otro brazo cambian a rojo
-     mientras el puño regresa a la guardia.
-   - El brazo que no lanzó el golpe deja de registrar puntos nuevos en
-     cuanto el otro cruza 175° (su trazo ya dibujado solo cambia de color).
-   - El trazo se detiene cuando el brazo activo llega a 55° (solo cuenta si
-     ya había cruzado 175° antes); en ese instante suena un beep corto de
-     confirmación y se toma la captura. Si un brazo nunca llega a 175° en
-     6 s, o llega pero nunca regresa a 55° en los 4 s siguientes, el
-     sistema cierra el golpe de forma automática para no bloquear la sesión
-     (sin el beep de confirmación, ya que no fue un golpe completo).
+   - El ángulo se mide en el codo (hombro-codo-muñeca), pero el esqueleto
+     (nodos y líneas hombro-codo-muñeca) permanece oculto en pantalla; solo
+     se muestran los medidores de ángulo (HUD) y el trazo de trayectoria.
+   - Mientras ningún brazo ha cruzado 175°, cada uno traza en su color
+     (derecho amarillo, izquierdo verde). En cuanto CUALQUIERA de los dos
+     cruza 175°, ese brazo queda marcado como "activo" y, a partir de ese
+     instante, los puntos NUEVOS de ambos brazos se dibujan en rojo — lo ya
+     trazado en amarillo/verde se conserva tal cual. El brazo secundario
+     sigue registrando su propio recorrido (ya no se congela), pero es el
+     brazo activo el que decide cuándo se detiene el trazo.
+   - El trazo se detiene cuando el brazo activo (el que cruzó 175° primero)
+     llega a 55°; en ese instante suena un beep corto de confirmación y se
+     toma la captura. Si un brazo nunca llega a 175° en 6 s, o llega pero
+     nunca regresa a 55° en los 4 s siguientes, el sistema cierra el golpe
+     de forma automática para no bloquear la sesión (sin el beep de
+     confirmación, ya que no fue un golpe completo).
    - El desvanecimiento del trazo dura 1.5 s después de los 5 s de
      permanencia en pantalla.
    - La captura de pantalla se toma en el instante exacto en que el trazo
@@ -535,28 +538,6 @@ function addGalleryCard(item){
 }
 
 /* ---------------- Draw loop ---------------- */
-function drawSkeletonPoint(x, y, color){
-  ctx.beginPath();
-  ctx.arc(x, y, 6, 0, Math.PI*2);
-  ctx.fillStyle = color;
-  ctx.fill();
-  ctx.lineWidth = 1.5;
-  ctx.strokeStyle = 'rgba(255,255,255,.6)';
-  ctx.stroke();
-}
-
-function drawArmSkeleton(shoulder, elbow, wrist, color){
-  ctx.beginPath();
-  ctx.moveTo(shoulder.x, shoulder.y);
-  ctx.lineTo(elbow.x, elbow.y);
-  ctx.lineTo(wrist.x, wrist.y);
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = 'rgba(255,255,255,.55)';
-  ctx.stroke();
-  drawSkeletonPoint(shoulder.x, shoulder.y, color);
-  drawSkeletonPoint(elbow.x, elbow.y, color);
-  drawSkeletonPoint(wrist.x, wrist.y, color);
-}
 
 function drawTrail(points, alpha){
   if(points.length < 2) return;
@@ -605,22 +586,15 @@ function onResults(results){
   }
 
   if(lastLandmarks){
-    const rs = mirroredPoint(lastLandmarks[12]);
-    const re = mirroredPoint(lastLandmarks[14]);
     const rw = mirroredPoint(lastLandmarks[16]);
-    const ls = mirroredPoint(lastLandmarks[11]);
-    const le = mirroredPoint(lastLandmarks[13]);
     const lw = mirroredPoint(lastLandmarks[15]);
 
     currentAngleR = angleAt(lastLandmarks[12], lastLandmarks[14], lastLandmarks[16]);
     currentAngleL = angleAt(lastLandmarks[11], lastLandmarks[13], lastLandmarks[15]);
     updateGauge(needleR, degR, currentAngleR);
     updateGauge(needleL, degL, currentAngleL);
-
-    const rightColor = getComputedStyle(document.documentElement).getPropertyValue('--right').trim();
-    const leftColor = getComputedStyle(document.documentElement).getPropertyValue('--left').trim();
-    drawArmSkeleton(rs, re, rw, rightColor);
-    drawArmSkeleton(ls, le, lw, leftColor);
+    // El esqueleto (nodos y líneas hombro-codo-muñeca) se mantiene oculto;
+    // las mediciones de ángulo se siguen calculando arriba con normalidad.
 
     if(state === 'tracking'){
       const visR = (lastLandmarks[16].visibility ?? 1) > 0.4;
@@ -630,14 +604,13 @@ function onResults(results){
       const returnColor = getComputedStyle(document.documentElement).getPropertyValue('--return').trim();
 
       if(activeArm === null){
-        // Aún no se define qué brazo lanza el golpe: se registran ambos.
+        // Ningún brazo ha cruzado 175° todavía: ambos trazan en su color propio.
         if(visR) trailR.push({x: rw.x, y: rw.y, color: rightColor});
         if(visL) trailL.push({x: lw.x, y: lw.y, color: leftColor});
 
         if(currentAngleR >= ANGLE_THRESHOLD){
           activeArm = 'right';
           hasExtended = true;
-          trailL = trailL.map(p => ({ x: p.x, y: p.y, color: returnColor }));
           clearStateTimer();
           stateTimer = setTimeout(() => {
             if(state === 'tracking') completePunch('right', 'no-return');
@@ -645,21 +618,19 @@ function onResults(results){
         } else if(currentAngleL >= ANGLE_THRESHOLD){
           activeArm = 'left';
           hasExtended = true;
-          trailR = trailR.map(p => ({ x: p.x, y: p.y, color: returnColor }));
           clearStateTimer();
           stateTimer = setTimeout(() => {
             if(state === 'tracking') completePunch('left', 'no-return');
           }, MAX_RETURN_MS);
         }
       } else {
-        // El brazo activo continúa trazando en rojo durante el regreso.
-        const isRight = activeArm === 'right';
-        const vis = isRight ? visR : visL;
-        const point = isRight ? rw : lw;
-        const arr = isRight ? trailR : trailL;
-        if(vis) arr.push({x: point.x, y: point.y, color: returnColor});
+        // Un brazo ya cruzó 175°: lo ya trazado en amarillo/verde se conserva,
+        // pero los puntos nuevos de AMBOS brazos se dibujan en rojo. Solo el
+        // brazo activo decide cuándo se detiene el trazo (al llegar a 55°).
+        if(visR) trailR.push({x: rw.x, y: rw.y, color: returnColor});
+        if(visL) trailL.push({x: lw.x, y: lw.y, color: returnColor});
 
-        const activeAngle = isRight ? currentAngleR : currentAngleL;
+        const activeAngle = activeArm === 'right' ? currentAngleR : currentAngleL;
         if(hasExtended && activeAngle <= RETURN_THRESHOLD){
           completePunch(activeArm, 'reached');
         }
